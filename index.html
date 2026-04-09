@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f5f4f0">
+<title>חלוקת חשבון</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@300;400;600;700;900&family=Rubik:wght@400;600;700;900&display=swap');
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:#f5f4f0;font-family:'Noto Sans Hebrew','Rubik',sans-serif;direction:rtl;min-height:100vh;max-width:480px;margin:0 auto;overflow-x:hidden}
+input:focus,button:focus{outline:none}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#ccc;border-radius:4px}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes scaleIn{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:scale(1)}}
+@keyframes slideIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.fade-up{animation:fadeUp .4s ease-out both}
+.scale-in{animation:scaleIn .3s ease-out both}
+.slide-in{animation:slideIn .35s ease-out both}
+.btn{border:none;cursor:pointer;font-family:inherit;-webkit-appearance:none}
+.spinner{width:24px;height:24px;border:3px solid #ddd;border-top-color:#1a1a1a;border-radius:50%;animation:spin .6s linear infinite;display:inline-block}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel">
+const {useState,useMemo,useRef,useCallback}=React;
+
+const P=["#D94F4F","#3A7CA5","#2D9B83","#D4A843","#C76E3C","#7B5EA7","#4A8C6F","#C25975","#5B8DBE","#AA6B39"];
+const PB=["#fef2f2","#eff6fb","#effaf8","#fefce8","#fff7ed","#f5f0ff","#eefaf4","#fdf2f5","#f0f5fb","#fdf5ee"];
+const FRAC=[{l:"\u00BC",v:.25},{l:"\u2153",v:1/3},{l:"\u00BD",v:.5},{l:"\u2154",v:2/3},{l:"\u00BE",v:.75},{l:"1",v:1}];
+
+/* ── Receipt Scanner via Cloudflare Worker ── */
+// CHANGE THIS to your Cloudflare Worker URL after deploying:
+var WORKER_URL="https://receipt-scanner.YOUR-SUBDOMAIN.workers.dev";
+
+var DEMO_ITEMS=[
+  {name:"\u05E1\u05D5\u05D3\u05D4 \u05E1\u05D9\u05E0\u05D2\u05D4",unitPrice:14,qty:2,total:28},
+  {name:"\u05E7\u05D5\u05DC\u05D4 \u05D6\u05D9\u05E8\u05D5",unitPrice:15,qty:1,total:15},
+  {name:"\u05D1\u05E7\u05D1\u05D5\u05E7 \u05E0\u05D5\u05E0\u05D5 \u05D0\u05D3\u05D5\u05DD",unitPrice:118,qty:1,total:118},
+  {name:"\u05D1\u05D0\u05DF \u05DB\u05E9\u05E8 \u05D7\u05E4\u05D5\u05D3\u05E7",unitPrice:56,qty:1,total:56},
+  {name:"\u05E7\u05E8\u05D9\u05E1\u05E4\u05D9 \u05E9\u05E8\u05D9\u05DE\u05E4\u05E1",unitPrice:52,qty:1,total:52},
+  {name:"\u05D2\u05D9\u05E8\u05E4\u05D4 4 \u05D9\u05D7\u05F3",unitPrice:52,qty:1,total:52},
+  {name:"\u05D4\u05E4\u05D9\u05DC\u05D9\u05E4\u05D9\u05E0\u05D9\u05EA \u05D4\u05D7\u05E8\u05D9\u05E4\u05D4",unitPrice:72,qty:1,total:72},
+  {name:"\u05E8\u05D5\u05DC \u05D8\u05DC\u05D7\u05D5\u05DF \u05D9\u05DC\u05D3\u05D9\u05DD",unitPrice:44,qty:1,total:44},
+  {name:"\u05E1\u05D9\u05E0\u05D8\u05D4 \u05E0\u05D5\u05D3\u05DC\u05E1",unitPrice:76,qty:3,total:228},
+  {name:"\u05D1\u05D0\u05D2\u05E8 \u05E0\u05D5\u05D3\u05DC\u05E1 \u05D1\u05E7\u05E8",unitPrice:82,qty:1,total:82},
+  {name:"\u05E0\u05D5\u05D3\u05DC\u05E1 \u05D8\u05E8\u05D9\u05D0\u05E7\u05D9 \u05E2\u05D5\u05E3",unitPrice:46,qty:2,total:92},
+  {name:"\u05E9\u05E0\u05D9\u05E6\u05DC\u05D5\u05E0\u05D9\u05DD",unitPrice:46,qty:2,total:92},
+  {name:"\u05D1\u05D9\u05E3 \u05E8\u05D9\u05D9\u05E1 \u05E0\u05D5\u05D3\u05DC\u05E1",unitPrice:76,qty:1,total:76},
+  {name:"\u05E8\u05D5\u05DC \u05E6\u05DE\u05D7\u05D5\u05E0\u05D9 \u05D9\u05DC\u05D3\u05D9\u05DD",unitPrice:44,qty:1,total:44},
+  {name:"\u05E0\u05D5\u05D3\u05DC\u05E1 \u05D8\u05E8\u05D9\u05D0\u05E7\u05D9",unitPrice:44,qty:1,total:44},
+  {name:"\u05DE\u05D0\u05D2\u05E8 \u05D8\u05DC\u05D7\u05D5\u05DF - PAD",unitPrice:48,qty:3,total:144},
+  {name:"\u05E6\u05F3\u05D9\u05E8-\u05D6\u05D5 \u05E8\u05D5\u05DC - PAD",unitPrice:62,qty:1,total:62},
+];
+var DEMO_TOTAL=1301;
+var DEMO_DISCOUNT=118;
+
+function fileToBase64(file){
+  return new Promise(function(resolve,reject){
+    var r=new FileReader();
+    r.onload=function(){resolve(r.result.split(",")[1]);};
+    r.onerror=function(){reject(new Error("Read failed"));};
+    r.readAsDataURL(file);
+  });
+}
+
+function wait(ms){return new Promise(function(r){setTimeout(r,ms);});}
+
+async function scanReceipt(base64,mimeType,onStatus){
+  if(WORKER_URL.indexOf("YOUR-SUBDOMAIN")!==-1){
+    throw new Error("יש להגדיר את כתובת ה-Worker בקוד.\nראו הוראות בתחתית העמוד.");
+  }
+  if(onStatus)onStatus("שולח לסריקה...");
+  var resp=await fetch(WORKER_URL,{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({image:base64,mimeType:mimeType})
+  });
+  if(!resp.ok){
+    var err=await resp.json().catch(function(){return{error:"שגיאת שרת"};});
+    throw new Error(err.error||"שגיאה "+resp.status);
+  }
+  return await resp.json();
+}
+
+/* ── Components ── */
+
+function Steps({c,t}){
+  return <div style={{display:"flex",gap:4,justifyContent:"center",padding:"14px 0 6px"}}>
+    {Array.from({length:t}).map(function(_,i){return <div key={i} style={{width:i===c?24:8,height:8,borderRadius:4,background:i===c?"#1a1a1a":i<c?"#888":"#ddd",transition:"all .3s"}}/>;})}
+  </div>;
+}
+
+/* ── UPLOAD ── */
+function Upload({onNext,onItems}){
+  var _p=useState(null),preview=_p[0],setPreview=_p[1];
+  var _m=useState(null),mode=_m[0],setMode=_m[1];
+  var _l=useState(false),loading=_l[0],setLoading=_l[1];
+  var _e=useState(""),error=_e[0],setError=_e[1];
+  var _f=useState(null),rawFile=_f[0],setRawFile=_f[1];
+  var _sc=useState(null),scanned=_sc[0],setScanned=_sc[1];
+  var _mi=useState([]),manualItems=_mi[0],setManualItems=_mi[1];
+  var _bt=useState(''),billTotal=_bt[0],setBillTotal=_bt[1];
+  var _dc=useState(''),discount=_dc[0],setDiscount=_dc[1];
+  var _st=useState(""),status=_st[0],setStatus=_st[1];
+  var ref=useRef(null);
+
+  var openPicker=function(){if(ref.current){ref.current.value="";ref.current.click();}};
+  var handleFile=function(e){
+    var f=e.target.files&&e.target.files[0];
+    if(f){setRawFile(f);setPreview(URL.createObjectURL(f));setError("");setScanned(null);}
+  };
+
+  var doScan=async function(){
+    setLoading(true);setError("");setStatus("שולח לסריקה...");
+    try{
+      var b64=await fileToBase64(rawFile);
+      var mime=rawFile.type||"image/jpeg";
+      var result=await scanReceipt(b64,mime,setStatus);
+      setScanned(result);
+    }catch(ex){
+      setError(ex.message||"שגיאה בסריקה");
+    }
+    setLoading(false);setStatus("");
+  };
+
+  var useScanned=function(){
+    if(!scanned)return;
+    onItems(scanned.items,scanned.billTotal||0,scanned.discount||0);
+    onNext();
+  };
+
+  var addItem=function(){setManualItems(function(p){return p.concat([{name:'',unitPrice:0,qty:1,total:0}]);});};
+  var updateItem=function(i,field,val){
+    setManualItems(function(p){var n=p.slice();n[i]=Object.assign({},n[i]);n[i][field]=val;
+      if(field==='unitPrice'||field==='qty')n[i].total=n[i].unitPrice*n[i].qty;return n;});
+  };
+  var removeItem=function(i){setManualItems(function(p){return p.filter(function(_,j){return j!==i;});});};
+  var submitManual=function(){
+    var valid=manualItems.filter(function(it){return it.name.trim();});
+    if(valid.length===0)return;
+    var t=parseFloat(billTotal)||valid.reduce(function(s,it){return s+it.total;},0);
+    var d=parseFloat(discount)||0;
+    onItems(valid,t,d);onNext();
+  };
+
+  return <div className="fade-up" style={{textAlign:"center",padding:"24px 16px"}}>
+    <div style={{fontSize:56,marginBottom:8}}>🧾</div>
+    <h1 style={{fontSize:26,fontWeight:900,fontFamily:"'Rubik',sans-serif",marginBottom:4}}>חלוקת חשבון</h1>
+    <p style={{fontSize:14,color:"#888",marginBottom:20,lineHeight:1.6}}>צלמו חשבון, סרקו אוטומטית, חלקו בין משפחות</p>
+    <input ref={ref} type="file" accept="image/*" onChange={handleFile} style={{position:"absolute",top:"-9999px",opacity:0}} />
+
+    {/* Main buttons */}
+    {!mode&&!preview&&<div style={{display:"flex",flexDirection:"column",gap:10,maxWidth:300,margin:"0 auto"}}>
+      <button className="btn" onClick={openPicker} style={{padding:"14px",fontSize:15,fontWeight:700,background:"#1a1a1a",color:"#fff",borderRadius:12}}>{"📷 צלם / בחר תמונה"}</button>
+      <button className="btn" onClick={function(){setMode('manual');}} style={{padding:"14px",fontSize:15,fontWeight:700,background:"#fff",color:"#1a1a1a",border:"2px solid #e0e0e0",borderRadius:12}}>{"✏️ הזנה ידנית"}</button>
+      <div style={{display:"flex",alignItems:"center",gap:10,margin:"4px 0"}}><div style={{flex:1,height:1,background:"#ddd"}}/><span style={{fontSize:12,color:"#aaa"}}>או</span><div style={{flex:1,height:1,background:"#ddd"}}/></div>
+      <button className="btn" onClick={function(){onItems(DEMO_ITEMS,DEMO_TOTAL,DEMO_DISCOUNT);onNext();}} style={{padding:"14px",fontSize:15,fontWeight:700,background:"#f5f4f0",color:"#888",border:"2px solid #eee",borderRadius:12}}>{"🦒 דוגמה: חשבון ג׳ירף אילת"}</button>
+    </div>}
+
+    {/* Photo preview + scan */}
+    {preview&&!mode&&!scanned&&<div className="scale-in">
+      <img src={preview} alt="receipt" style={{maxWidth:"100%",maxHeight:240,borderRadius:12,border:"2px solid #eee",marginBottom:12}} />
+      {error&&<p style={{fontSize:12,color:"#D94F4F",marginBottom:8,padding:"8px 10px",background:"#fef2f2",borderRadius:8,whiteSpace:"pre-line",textAlign:"right",lineHeight:1.5}}>{error}</p>}
+
+      <div style={{display:"flex",flexDirection:"column",gap:8,maxWidth:280,margin:"0 auto"}}>
+        {loading?<div style={{textAlign:"center",padding:16}}><div className="spinner"/><p style={{fontSize:13,color:"#888",marginTop:8}}>סורק חשבון...</p>{status&&<p style={{fontSize:11,color:"#aaa",marginTop:4}}>{status}</p>}</div>
+        :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <button className="btn" onClick={doScan} style={{padding:"14px",fontSize:15,fontWeight:700,background:"#1a1a1a",color:"#fff",borderRadius:12}}>{"🤖 סרוק אוטומטית"}</button>
+          <button className="btn" onClick={function(){setMode('manual');}} style={{padding:"12px",fontSize:13,fontWeight:600,background:"#f5f4f0",color:"#888",borderRadius:10,border:"1px solid #e0e0e0"}}>{"✏️ או הזנה ידנית"}</button>
+          <button className="btn" onClick={function(){setPreview(null);setRawFile(null);}} style={{fontSize:12,color:"#aaa",background:"none",padding:4}}>← חזרה</button>
+        </div>}
+      </div>
+    </div>}
+
+    {/* Scan results */}
+    {scanned&&<div className="scale-in" style={{textAlign:"right"}}>
+      <img src={preview} alt="receipt" style={{maxWidth:"100%",maxHeight:120,borderRadius:10,border:"2px solid #eee",marginBottom:10}} />
+      <div style={{background:"#effaf8",border:"1px solid #2D9B83",borderRadius:10,padding:"10px 12px",marginBottom:12}}>
+        <p style={{fontSize:13,color:"#065f46",fontWeight:700}}>{"✓ נמצאו "+scanned.items.length+" פריטים"}</p>
+        <p style={{fontSize:11,color:"#065f46"}}>{"סה״כ: ₪"+(scanned.billTotal||0)+(scanned.discount?" | הנחה: ₪"+scanned.discount:"")}</p>
+      </div>
+      <div style={{maxHeight:200,overflowY:"auto",marginBottom:12}}>
+        {scanned.items.map(function(it,i){return <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:12,borderBottom:"1px solid #f0f0f0"}}>
+          <span style={{color:"#444"}}>{it.name}{it.qty>1&&<span style={{color:"#aaa"}}>{" \u00D7"+it.qty}</span>}</span>
+          <span style={{fontWeight:600}}>{"₪"+it.total}</span>
+        </div>;})}
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <button className="btn" onClick={useScanned} style={{flex:1,padding:"14px",fontSize:15,fontWeight:700,background:"#1a1a1a",color:"#fff",borderRadius:12}}>{"המשך עם הפריטים ←"}</button>
+      </div>
+      <button className="btn" onClick={function(){setScanned(null);}} style={{fontSize:12,color:"#aaa",background:"none",padding:8,marginTop:4,display:"block",width:"100%",textAlign:"center"}}>סרוק שוב</button>
+    </div>}
+
+    {/* Manual entry */}
+    {mode==='manual'&&<div style={{textAlign:"right",marginTop:preview?16:0}}>
+      <h3 style={{fontSize:16,fontWeight:700,marginBottom:10,textAlign:"center"}}>הוסיפו פריטים</h3>
+      {manualItems.map(function(it,i){return <div key={i} className="slide-in" style={{animationDelay:i*30+"ms",display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
+        <input placeholder="שם מנה" value={it.name} onChange={function(e){updateItem(i,'name',e.target.value);}}
+          style={{flex:1,padding:"8px",fontSize:13,fontWeight:600,border:"1px solid #ddd",borderRadius:8,fontFamily:"inherit"}} />
+        <input placeholder="מחיר" type="number" value={it.unitPrice||''} onChange={function(e){updateItem(i,'unitPrice',parseFloat(e.target.value)||0);}}
+          style={{width:60,padding:"8px",fontSize:13,border:"1px solid #ddd",borderRadius:8,textAlign:"center",fontFamily:"inherit"}} />
+        <input placeholder="כמות" type="number" value={it.qty||''} onChange={function(e){updateItem(i,'qty',parseInt(e.target.value)||1);}}
+          style={{width:44,padding:"8px",fontSize:13,border:"1px solid #ddd",borderRadius:8,textAlign:"center",fontFamily:"inherit"}} />
+        <button className="btn" onClick={function(){removeItem(i);}} style={{width:28,height:28,borderRadius:7,background:"#fee",color:"#c00",fontSize:14,fontWeight:700}}>×</button>
+      </div>;})}
+      <button className="btn" onClick={addItem} style={{width:"100%",padding:"10px",fontSize:14,fontWeight:700,background:"#f0f0f0",color:"#666",borderRadius:10,marginTop:4,marginBottom:12}}>+ הוסף פריט</button>
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
+        <div style={{flex:1}}><label style={{fontSize:11,color:"#888"}}>סה״כ חשבון</label>
+          <input type="number" placeholder="אוטומטי" value={billTotal} onChange={function(e){setBillTotal(e.target.value);}}
+            style={{width:"100%",padding:"8px",fontSize:14,fontWeight:700,border:"2px solid #eee",borderRadius:8,textAlign:"center",fontFamily:"inherit"}} /></div>
+        <div style={{flex:1}}><label style={{fontSize:11,color:"#888"}}>הנחה</label>
+          <input type="number" placeholder="0" value={discount} onChange={function(e){setDiscount(e.target.value);}}
+            style={{width:"100%",padding:"8px",fontSize:14,fontWeight:700,border:"2px solid #eee",borderRadius:8,textAlign:"center",fontFamily:"inherit"}} /></div>
+      </div>
+      {manualItems.length>0&&<button className="btn" onClick={submitManual} style={{width:"100%",padding:"14px",fontSize:15,fontWeight:700,background:"#1a1a1a",color:"#fff",borderRadius:12}}>
+        {"המשך ("+manualItems.filter(function(x){return x.name.trim();}).length+" פריטים) ←"}
+      </button>}
+      <button className="btn" onClick={function(){setMode(null);}} style={{fontSize:12,color:"#aaa",background:"none",padding:8,marginTop:4,display:"block",width:"100%",textAlign:"center"}}>← חזרה</button>
+    </div>}
+  </div>;
+}
+
+/* ── FAMILY SETUP ── */
+function FamilySetup({onNext}){
+  var _c=useState(5),count=_c[0],setCount=_c[1];
+  var _n=useState(Array.from({length:10},function(_,i){return "\u05DE\u05E9\u05E4\u05D7\u05D4 "+(i+1);})),names=_n[0],setNames=_n[1];
+  return <div className="fade-up" style={{padding:"24px 16px"}}>
+    <h2 style={{fontSize:22,fontWeight:900,fontFamily:"'Rubik',sans-serif",textAlign:"center",marginBottom:4}}>כמה משפחות?</h2>
+    <p style={{textAlign:"center",fontSize:13,color:"#888",marginBottom:20}}>בחרו מספר ותנו שמות</p>
+    <div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:16,marginBottom:24}}>
+      <button className="btn" onClick={function(){setCount(function(c){return Math.max(2,c-1);});}} style={{width:44,height:44,borderRadius:12,border:"2px solid #ddd",background:"#fff",fontSize:22,fontWeight:700}}>−</button>
+      <span style={{fontSize:48,fontWeight:900,fontFamily:"'Rubik',sans-serif",minWidth:50,textAlign:"center"}}>{count}</span>
+      <button className="btn" onClick={function(){setCount(function(c){return Math.min(10,c+1);});}} style={{width:44,height:44,borderRadius:12,border:"2px solid #ddd",background:"#fff",fontSize:22,fontWeight:700}}>+</button>
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:8,maxWidth:300,margin:"0 auto 24px"}}>
+      {Array.from({length:count}).map(function(_,i){return <div key={i} className="slide-in" style={{animationDelay:i*50+"ms",display:"flex",alignItems:"center",gap:8}}>
+        <div style={{width:14,height:14,borderRadius:5,background:P[i],flexShrink:0}} />
+        <input value={names[i]} onChange={function(e){var n=names.slice();n[i]=e.target.value;setNames(n);}}
+          onFocus={function(e){if(e.target.value.indexOf("\u05DE\u05E9\u05E4\u05D7\u05D4")===0)e.target.select();}}
+          style={{flex:1,padding:"10px 12px",fontSize:14,fontWeight:600,fontFamily:"inherit",border:"2px solid "+P[i]+"33",borderRadius:10,background:PB[i],direction:"rtl"}} />
+      </div>;})}
+    </div>
+    <div style={{textAlign:"center"}}>
+      <button className="btn" onClick={function(){onNext(count,names.slice(0,count));}} style={{padding:"14px 48px",fontSize:15,fontWeight:700,background:"#1a1a1a",color:"#fff",borderRadius:12}}>{"המשך לחלוקה ←"}</button>
+    </div>
+  </div>;
+}
+
+/* ── AVAILABILITY ── */
+function getAv(item,idx,asgn,af){
+  var a=asgn[idx]||{};var myVal=a[af]||0;var ot=0;
+  var ks=Object.keys(a);for(var k=0;k<ks.length;k++){if(Number(ks[k])!==af)ot+=a[ks[k]];}
+  if(item.qty>1){var avail=item.qty-ot;return{myVal:myVal,ot:ot,avail:avail,grey:avail<=0&&myVal===0};}
+  else{var av2=1-ot;return{myVal:myVal,ot:ot,avail:av2,grey:av2<.01&&myVal<.01};}
+}
+
+/* ── ASSIGNMENT ── */
+function Assign({items,families,familyNames,assignments,setAssignments,onNext,netTotal}){
+  var _sp=useState(null),splitOpen=_sp[0],setSplitOpen=_sp[1];
+  var _af=useState(0),af=_af[0],setAf=_af[1];
+  var fn=familyNames,asgn=assignments,setA=setAssignments;
+
+  var setVal=function(ii,fi,v){setA(function(p){var n=p.map(function(a){return Object.assign({},a);});n[ii]=Object.assign({},n[ii]);n[ii][fi]=v;return n;});};
+
+  var tap=function(idx){
+    var item=items[idx];if(item.total===0)return;
+    var av=getAv(item,idx,asgn,af);if(av.grey)return;
+    if(item.qty>1){setVal(idx,af,av.myVal>=av.avail?0:av.myVal+1);}
+    else{setVal(idx,af,av.myVal>=.99?0:Math.min(1,av.avail));}
+  };
+
+  var markAllLeft=function(){
+    setA(function(prev){
+      var next=prev.map(function(a){return Object.assign({},a);});
+      items.forEach(function(item,idx){
+        if(item.total===0)return;
+        var av=getAv(item,idx,next,af);
+        if(av.grey||av.myVal>0)return;
+        if(item.qty>1){if(av.avail>0)next[idx]=Object.assign({},next[idx],{[af]:av.avail});}
+        else{if(av.avail>.01)next[idx]=Object.assign({},next[idx],{[af]:av.avail});}
+      });
+      return next;
+    });
+  };
+
+  var famCost=function(fi){var t=0;items.forEach(function(it,i){var v=(asgn[i]&&asgn[i][fi])||0;t+=it.qty>1?v*it.unitPrice:v*it.total;});return t;};
+  var totAsgn=0;items.forEach(function(it,i){var a=asgn[i]||{};var u=0;var ks=Object.keys(a);for(var k=0;k<ks.length;k++)u+=a[ks[k]];totAsgn+=it.qty>1?u*it.unitPrice:u*it.total;});
+  var pct=Math.min(100,(totAsgn/netTotal)*100);
+  var hasLeft=items.some(function(item,idx){if(item.total===0)return false;var av=getAv(item,idx,asgn,af);return!av.grey&&av.myVal===0;});
+
+  return <div className="fade-up" style={{padding:"8px 10px 130px"}}>
+    <h2 style={{fontSize:20,fontWeight:900,fontFamily:"'Rubik',sans-serif",textAlign:"center",marginBottom:2}}>חלוקת פריטים</h2>
+    <p style={{textAlign:"center",fontSize:12,color:"#888",marginBottom:10}}>בחרו משפחה, לחצו על מנה לשייך</p>
+
+    <div style={{display:"flex",gap:4,marginBottom:6,overflowX:"auto",padding:"2px 0",WebkitOverflowScrolling:"touch"}}>
+      {fn.map(function(name,i){var c=famCost(i);return <button key={i} className="btn" onClick={function(){setAf(i);setSplitOpen(null);}} style={{
+        padding:"7px 10px",fontSize:11,fontWeight:700,borderRadius:10,border:af===i?"2px solid "+P[i]:"2px solid transparent",
+        whiteSpace:"nowrap",background:af===i?P[i]:"#f0f0f0",color:af===i?"#fff":"#888",transition:"all .2s",flexShrink:0
+      }}>{name}{c>0&&<span style={{display:"block",fontSize:9,opacity:.85,marginTop:1}}>{"₪"+Math.round(c)}</span>}</button>;})}
+    </div>
+
+    {hasLeft&&<button className="btn" onClick={markAllLeft} style={{
+      width:"100%",padding:"10px",fontSize:13,fontWeight:700,borderRadius:10,marginBottom:8,
+      background:PB[af],color:P[af],border:"2px dashed "+P[af],display:"flex",alignItems:"center",justifyContent:"center",gap:6
+    }}>{"⚡ סמן הכל שנשאר עבור "+fn[af]}</button>}
+
+    <div style={{display:"flex",flexDirection:"column",gap:4}}>
+      {items.map(function(item,idx){
+        var isZ=item.total===0;var av=getAv(item,idx,asgn,af);var isS=splitOpen===idx;var grey=av.grey&&!isZ;
+        var chips=[];fn.forEach(function(nm,fi){var v=(asgn[idx]&&asgn[idx][fi])||0;if(v<=0)return;
+          chips.push({fi:fi,label:item.qty>1?v+"\u00D7":v>=.99?"\u2713":Math.round(v*100)+"%"});});
+
+        return <div key={idx} style={{background:grey?"#f7f7f5":"#fff",borderRadius:12,overflow:"hidden",
+          border:av.myVal>0?"2px solid "+P[af]:"1px solid #eee",opacity:isZ?.35:1,transition:"all .15s",position:"relative"}}>
+          {grey&&<div style={{position:"absolute",inset:0,background:"rgba(245,244,240,.55)",zIndex:1,pointerEvents:"none",borderRadius:12}}/>}
+          <div style={{display:"flex",alignItems:"center",padding:"10px",cursor:isZ||grey?"default":"pointer",gap:8,position:"relative",zIndex:2}}
+            onClick={function(){if(!isZ&&!grey&&!isS)tap(idx);}}>
+            <div style={{width:32,height:32,borderRadius:8,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:item.qty>1&&av.myVal>0?16:14,fontWeight:900,fontFamily:"'Rubik',sans-serif",
+              background:av.myVal>0?P[af]:grey?"#e8e8e4":"#f5f5f5",color:av.myVal>0?"#fff":grey?"#bbb":"#ccc",transition:"all .15s"}}>
+              {grey&&av.myVal<=0?"\u2014":item.qty>1?(av.myVal>0?av.myVal:""):(av.myVal>=.99?"\u2713":(av.myVal>.01?Math.round(av.myVal*100)+"%":""))}
+            </div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:14,fontWeight:600,color:grey?"#aaa":"#222",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",
+                textDecoration:grey?"line-through":"none",textDecorationColor:"#ccc"}}>
+                {item.name}{item.qty>1&&<span style={{fontSize:11,color:"#bbb",marginRight:4}}>{" \u00D7"+item.qty}</span>}
+              </div>
+              {chips.length>0&&<div style={{display:"flex",gap:3,marginTop:3,flexWrap:"wrap"}}>
+                {chips.map(function(c){return <span key={c.fi} style={{fontSize:9,fontWeight:700,padding:"1px 5px",borderRadius:4,background:P[c.fi],color:"#fff"}}>{fn[c.fi].slice(0,5)+" "+c.label}</span>;})}
+              </div>}
+              {grey&&<span style={{fontSize:10,color:"#c4a06a",fontWeight:600}}>שויך במלואו</span>}
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+              {!isZ&&!grey&&<button className="btn" onClick={function(e){e.stopPropagation();setSplitOpen(isS?null:idx);}}
+                style={{width:28,height:28,borderRadius:7,border:"1px solid #e0e0e0",background:isS?"#333":"#fafafa",fontSize:13,color:isS?"#fff":"#aaa",
+                  display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>✂</button>}
+              <span style={{fontSize:13,fontWeight:700,color:isZ||grey?"#ccc":"#1a1a1a",minWidth:36,textAlign:"left"}}>{"₪"+item.total}</span>
+            </div>
+          </div>
+          {isS&&!isZ&&!grey&&<div className="scale-in" style={{padding:"10px 12px 14px",borderTop:"1px solid #f0f0f0",background:"#fafaf9",position:"relative",zIndex:2}}>
+            <p style={{fontSize:11,color:"#888",marginBottom:8,fontWeight:600}}>{"✂ פיצול עבור "}<span style={{color:P[af]}}>{fn[af]}</span></p>
+            {item.qty>1?<div style={{display:"flex",alignItems:"center",gap:12}}>
+              <button className="btn" onClick={function(){setVal(idx,af,Math.max(0,av.myVal-1));}} style={{width:36,height:36,borderRadius:9,border:"2px solid #ddd",background:"#fff",fontSize:18,fontWeight:700}}>−</button>
+              <span style={{fontSize:26,fontWeight:900,fontFamily:"'Rubik',sans-serif",color:P[af],minWidth:28,textAlign:"center"}}>{av.myVal}</span>
+              <button className="btn" onClick={function(){setVal(idx,af,Math.min(av.avail,av.myVal+1));}} style={{width:36,height:36,borderRadius:9,border:"2px solid #ddd",background:"#fff",fontSize:18,fontWeight:700}}>+</button>
+              <span style={{fontSize:12,color:"#888"}}>{"מתוך "+item.qty+" (פנוי: "+av.avail+")"}</span>
+            </div>
+            :<div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+              {FRAC.filter(function(o){return o.v<=av.avail+av.myVal+.01;}).map(function(o){
+                var act=Math.abs(av.myVal-o.v)<.01;
+                return <button key={o.l} className="btn" onClick={function(){setVal(idx,af,act?0:o.v);}} style={{
+                  padding:"9px 14px",fontSize:14,fontWeight:700,borderRadius:9,minWidth:42,
+                  background:act?P[af]:"#eee",color:act?"#fff":"#555",transition:"all .15s"}}>{o.l}</button>;
+              })}
+            </div>}
+            {av.myVal>0&&<p style={{fontSize:12,fontWeight:700,color:P[af],marginTop:8}}>{"= ₪"+Math.round(item.qty>1?av.myVal*item.unitPrice:av.myVal*item.total)}</p>}
+            <div style={{display:"flex",gap:4,marginTop:10,flexWrap:"wrap"}}>
+              {fn.map(function(n,fi){if(fi===af)return null;var fv=(asgn[idx]&&asgn[idx][fi])||0;
+                return <button key={fi} className="btn" onClick={function(){setAf(fi);}} style={{padding:"4px 8px",fontSize:10,fontWeight:600,
+                  borderRadius:6,border:"1px solid "+P[fi]+"44",background:fv>0?P[fi]:PB[fi],color:fv>0?"#fff":P[fi]}}>{n+(fv>0?" \u2713":"")}</button>;})}
+            </div>
+          </div>}
+        </div>;
+      })}
+    </div>
+
+    <div style={{position:"fixed",bottom:0,left:0,right:0,padding:"10px 16px 14px",background:"rgba(26,26,26,.97)",backdropFilter:"blur(8px)",zIndex:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",maxWidth:480,margin:"0 auto"}}>
+        <div style={{flex:1}}>
+          <div style={{fontSize:11,color:"#aaa",marginBottom:4}}>{"שויך ₪"+Math.round(totAsgn)+" / ₪"+netTotal}</div>
+          <div style={{width:"100%",maxWidth:120,height:5,background:"#444",borderRadius:3}}>
+            <div style={{width:pct+"%",height:5,borderRadius:3,transition:"width .3s",background:pct>95?"#4ade80":pct>50?"#facc15":"#f87171"}}/>
+          </div>
+        </div>
+        <button className="btn" onClick={onNext} style={{padding:"10px 24px",fontSize:14,fontWeight:700,background:"#fff",color:"#1a1a1a",borderRadius:10}}>{"טיפ וסיכום ←"}</button>
+      </div>
+    </div>
+  </div>;
+}
+
+/* ── SUMMARY ── */
+function Summary({items,families,familyNames,assignments,onBack,netTotal,billTotal,discount}){
+  var fn=familyNames,asgn=assignments;
+  var _tp=useState(10),tip=_tp[0],setTip=_tp[1];
+  var tips=[0,5,10,12,15,18,20];
+  var _op=useState(null),open=_op[0],setOpen=_op[1];
+
+  var subs=fn.map(function(_,fi){var t=0;items.forEach(function(it,i){var v=(asgn[i]&&asgn[i][fi])||0;t+=it.qty>1?v*it.unitPrice:v*it.total;});return t;});
+  var totA=subs.reduce(function(a,b){return a+b;},0);
+  var unA=Math.max(0,netTotal-totA);
+
+  var details=fn.map(function(name,fi){
+    var sub=subs[fi],shr=unA>.5?unA/families:0,base=sub+shr,tp=base*(tip/100),fin=base+tp;
+    var its=[];items.forEach(function(it,i){var v=(asgn[i]&&asgn[i][fi])||0;if(v<=0)return;
+      its.push({name:it.name,desc:it.qty>1?v+"\u00D7":v>=.99?"":Math.round(v*100)+"%",cost:it.qty>1?v*it.unitPrice:v*it.total});});
+    return{name:name,sub:sub,shr:shr,tp:tp,fin:fin,its:its};
+  });
+  var grand=details.reduce(function(s,f){return s+f.fin;},0);
+
+  return <div className="fade-up" style={{padding:"20px 14px 40px"}}>
+    <h2 style={{fontSize:22,fontWeight:900,fontFamily:"'Rubik',sans-serif",textAlign:"center",marginBottom:16}}>סיכום חשבון</h2>
+    <div style={{background:"#fff",borderRadius:14,padding:14,marginBottom:14,border:"1px solid #eee"}}>
+      <p style={{fontSize:13,fontWeight:700,marginBottom:10}}>{"🎩 טיפ"}</p>
+      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+        {tips.map(function(t){return <button key={t} className="btn" onClick={function(){setTip(t);}} style={{padding:"8px 14px",fontSize:14,fontWeight:700,borderRadius:8,
+          background:tip===t?"#1a1a1a":"#f0f0f0",color:tip===t?"#fff":"#888"}}>{t+"%"}</button>;})}
+      </div>
+      <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8}}>
+        <span style={{fontSize:12,color:"#888"}}>אחוז אחר:</span>
+        <input type="number" value={tip} onChange={function(e){setTip(Math.max(0,Number(e.target.value)));}}
+          style={{width:56,padding:6,fontSize:14,fontWeight:700,fontFamily:"inherit",border:"2px solid #eee",borderRadius:8,textAlign:"center"}} />
+        <span style={{fontSize:12,color:"#888"}}>%</span>
+      </div>
+    </div>
+
+    {unA>1&&<div style={{background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:10,padding:"10px 12px",marginBottom:14}}>
+      <p style={{fontSize:12,color:"#b91c1c",fontWeight:600}}>{"⚠️ ₪"+Math.round(unA)+" לא שויכו — יחולקו שווה (₪"+Math.round(unA/families)+" כ\"א)"}</p>
+    </div>}
+
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      {details.map(function(f,i){return <div key={i} className="slide-in" style={{animationDelay:i*70+"ms",background:"#fff",borderRadius:14,overflow:"hidden",border:"2px solid "+P[i]+"33"}}>
+        <div onClick={function(){setOpen(open===i?null:i);}} style={{padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",background:PB[i],cursor:"pointer"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:14,height:14,borderRadius:5,background:P[i]}} />
+            <span style={{fontSize:16,fontWeight:800,fontFamily:"'Rubik',sans-serif"}}>{f.name}</span>
+            <span style={{fontSize:11,color:"#aaa"}}>{f.its.length+" פריטים"}</span>
+          </div>
+          <span style={{fontSize:24,fontWeight:900,fontFamily:"'Rubik',sans-serif",color:P[i]}}>{"₪"+Math.round(f.fin)}</span>
+        </div>
+        {open===i&&<div className="scale-in" style={{padding:"8px 14px 12px"}}>
+          {f.its.map(function(it,j){return <div key={j} style={{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12,color:"#666"}}>
+            <span>{it.name}{it.desc&&<span style={{color:"#bbb"}}>{" ("+it.desc+")"}</span>}</span>
+            <span style={{fontWeight:600}}>{"₪"+Math.round(it.cost)}</span>
+          </div>;})}
+          {f.shr>.5&&<div style={{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:11,color:"#ccc",fontStyle:"italic"}}>
+            <span>חלק לא-משויך</span><span>{"₪"+Math.round(f.shr)}</span></div>}
+          <div style={{borderTop:"1px solid #f0f0f0",marginTop:4,paddingTop:4,display:"flex",justifyContent:"space-between",fontSize:11,color:"#aaa"}}>
+            <span>{"טיפ "+tip+"%"}</span><span>{"₪"+Math.round(f.tp)}</span></div>
+        </div>}
+      </div>;})}
+    </div>
+
+    <div style={{marginTop:16,background:"#1a1a1a",borderRadius:14,padding:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div><div style={{fontSize:13,color:"#aaa"}}>{"סה״כ כולל טיפ "+tip+"%"}</div>
+        <div style={{fontSize:11,color:"#555",marginTop:2}}>{"חשבון ₪"+billTotal+(discount>0?" − הנחה ₪"+discount:"")}</div></div>
+      <span style={{fontSize:28,fontWeight:900,fontFamily:"'Rubik',sans-serif",color:"#fff"}}>{"₪"+Math.round(grand)}</span>
+    </div>
+    <button className="btn" onClick={onBack} style={{display:"block",margin:"20px auto 0",padding:"12px 32px",fontSize:14,fontWeight:700,background:"#fff",color:"#1a1a1a",border:"2px solid #ddd",borderRadius:12}}>{"← חזרה לעריכה"}</button>
+  </div>;
+}
+
+/* ── APP ── */
+function App(){
+  var _s=useState(0),step=_s[0],setStep=_s[1];
+  var _f=useState(5),families=_f[0],setFamilies=_f[1];
+  var _fn=useState([]),familyNames=_fn[0],setFamilyNames=_fn[1];
+  var _it=useState([]),items=_it[0],setItems=_it[1];
+  var _as=useState([]),asgn=_as[0],setAsgn=_as[1];
+  var _bt=useState(0),billTotal=_bt[0],setBillTotal=_bt[1];
+  var _dc=useState(0),discount=_dc[0],setDiscount=_dc[1];
+  var netTotal=billTotal-discount;
+
+  var handleItems=function(newItems,bt,dc){
+    setItems(newItems);setAsgn(newItems.map(function(){return {};}));setBillTotal(bt);setDiscount(dc);
+  };
+
+  return <div>
+    <Steps c={step} t={4} />
+    {step===0&&<Upload onNext={function(){setStep(1);}} onItems={handleItems} />}
+    {step===1&&<FamilySetup onNext={function(c,n){setFamilies(c);setFamilyNames(n);setStep(2);}} />}
+    {step===2&&items.length>0&&<Assign items={items} families={families} familyNames={familyNames} assignments={asgn} setAssignments={setAsgn} onNext={function(){setStep(3);}} netTotal={netTotal} />}
+    {step===3&&<Summary items={items} families={families} familyNames={familyNames} assignments={asgn} onBack={function(){setStep(2);}} netTotal={netTotal} billTotal={billTotal} discount={discount} />}
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById('app')).render(<App/>);
+</script>
+</body>
+</html>
