@@ -137,6 +137,43 @@ function Upload({onNext,onItems}){
     onNext();
   };
 
+  var _pt=useState(""),pasteText=_pt[0],setPasteText=_pt[1];
+  var _pe=useState(""),pasteError=_pe[0],setPasteError=_pe[1];
+
+  var parseText=function(){
+    var lines=pasteText.split('\n').filter(function(l){return l.trim();});
+    var items=[];var total=0;var disc=0;
+    for(var i=0;i<lines.length;i++){
+      var line=lines[i].trim();
+      // Try: total qty price name (Hebrew receipt format)
+      var m=line.match(/^(\d+[\.,]?\d*)\s+(\d+)\s+(\d+[\.,]?\d*)\s+(.+)/);
+      if(m){
+        var t=parseFloat(m[1].replace(',','.')),q=parseInt(m[2]),p=parseFloat(m[3].replace(',','.')),n=m[4].trim();
+        if(!isNaN(t)&&!isNaN(q)&&!isNaN(p)&&n){items.push({name:n,unitPrice:p,qty:q,total:t});continue;}
+      }
+      // Try: qty name price (common format)
+      var m2=line.match(/^(\d+)\s+(.+?)\s+(\d+[\.,]?\d*)$/);
+      if(m2){
+        var q2=parseInt(m2[1]),n2=m2[2].trim(),p2=parseFloat(m2[3].replace(',','.'));
+        if(!isNaN(q2)&&!isNaN(p2)&&n2){items.push({name:n2,unitPrice:p2/q2,qty:q2,total:p2});continue;}
+      }
+      // Try: name price
+      var m3=line.match(/^(.+?)\s+(\d+[\.,]?\d*)$/);
+      if(m3){
+        var n3=m3[1].trim(),p3=parseFloat(m3[2].replace(',','.'));
+        if(!isNaN(p3)&&n3&&n3.length>1){items.push({name:n3,unitPrice:p3,qty:1,total:p3});continue;}
+      }
+      // Try to catch total/discount lines
+      var tMatch=line.match(/(?:סה.*כ|total|לתשלום).*?(\d+[\.,]?\d*)/i);
+      if(tMatch){total=parseFloat(tMatch[1].replace(',','.'));continue;}
+      var dMatch=line.match(/(?:הנחה|discount).*?(\d+[\.,]?\d*)/i);
+      if(dMatch){disc=parseFloat(dMatch[1].replace(',','.'));continue;}
+    }
+    if(items.length===0){setPasteError("לא הצלחתי לזהות פריטים. נסו לוודא שכל שורה מכילה שם ומחיר.");return;}
+    if(!total)total=items.reduce(function(s,it){return s+it.total;},0);
+    onItems(items,total,disc);onNext();
+  };
+
   var addItem=function(){setManualItems(function(p){return p.concat([{name:'',unitPrice:0,qty:1,total:0}]);});};
   var updateItem=function(i,field,val){
     setManualItems(function(p){var n=p.slice();n[i]=Object.assign({},n[i]);n[i][field]=val;
@@ -160,7 +197,8 @@ function Upload({onNext,onItems}){
     {/* Main buttons */}
     {!mode&&!preview&&<div style={{display:"flex",flexDirection:"column",gap:10,maxWidth:300,margin:"0 auto"}}>
       <button className="btn" onClick={openPicker} style={{padding:"14px",fontSize:15,fontWeight:700,background:"#1a1a1a",color:"#fff",borderRadius:12}}>{"📷 צלם / בחר תמונה"}</button>
-      <button className="btn" onClick={function(){setMode('manual');}} style={{padding:"14px",fontSize:15,fontWeight:700,background:"#fff",color:"#1a1a1a",border:"2px solid #e0e0e0",borderRadius:12}}>{"✏️ הזנה ידנית"}</button>
+      <button className="btn" onClick={function(){setMode('paste');}} style={{padding:"14px",fontSize:15,fontWeight:700,background:"#fff",color:"#1a1a1a",border:"2px solid #e0e0e0",borderRadius:12}}>{"📋 הדבק טקסט מחשבון"}</button>
+      <button className="btn" onClick={function(){setMode('manual');}} style={{padding:"12px",fontSize:13,fontWeight:600,background:"#f5f4f0",color:"#888",borderRadius:10,border:"1px solid #eee"}}>{"✏️ הזנה ידנית"}</button>
       <div style={{display:"flex",alignItems:"center",gap:10,margin:"4px 0"}}><div style={{flex:1,height:1,background:"#ddd"}}/><span style={{fontSize:12,color:"#aaa"}}>או</span><div style={{flex:1,height:1,background:"#ddd"}}/></div>
       <button className="btn" onClick={function(){onItems(DEMO_ITEMS,DEMO_TOTAL,DEMO_DISCOUNT);onNext();}} style={{padding:"14px",fontSize:15,fontWeight:700,background:"#f5f4f0",color:"#888",border:"2px solid #eee",borderRadius:12}}>{"🦒 דוגמה: חשבון ג׳ירף אילת"}</button>
     </div>}
@@ -200,6 +238,24 @@ function Upload({onNext,onItems}){
     </div>}
 
     {/* Manual entry */}
+    {/* Paste text mode */}
+    {mode==='paste'&&<div className="fade-up" style={{textAlign:"right",maxWidth:340,margin:"0 auto"}}>
+      <h3 style={{fontSize:16,fontWeight:700,marginBottom:6,textAlign:"center"}}>📋 הדביקו טקסט מהחשבון</h3>
+      <p style={{fontSize:11,color:"#888",marginBottom:10,textAlign:"center",lineHeight:1.5}}>
+        {"צלמו את החשבון באפליקציית המצלמה, העתיקו טקסט מהתמונה, והדביקו כאן"}
+      </p>
+      <textarea value={pasteText} onChange={function(e){setPasteText(e.target.value);setPasteError("");}}
+        placeholder={"לדוגמה:\n28.00  2  14.00  סודה סינגה\n15.00  1  15.00  קולה זירו\n118.00  1  118.00  בקבוק נונו אדום\n...\nסה״כ לתשלום 1183.00"}
+        style={{width:"100%",minHeight:180,padding:12,fontSize:13,fontFamily:"inherit",border:"2px solid #ddd",borderRadius:10,
+          direction:"rtl",resize:"vertical",lineHeight:1.6,background:"#fff"}} />
+      {pasteError&&<p style={{fontSize:12,color:"#D94F4F",marginTop:6,padding:"6px 10px",background:"#fef2f2",borderRadius:8}}>{pasteError}</p>}
+      <div style={{display:"flex",gap:8,marginTop:10}}>
+        <button className="btn" onClick={parseText} disabled={!pasteText.trim()} style={{flex:1,padding:"14px",fontSize:15,fontWeight:700,
+          background:pasteText.trim()?"#1a1a1a":"#ccc",color:"#fff",borderRadius:12}}>{"זהה פריטים ←"}</button>
+      </div>
+      <button className="btn" onClick={function(){setMode(null);setPasteText("");setPasteError("");}} style={{fontSize:12,color:"#aaa",background:"none",padding:8,marginTop:4,display:"block",width:"100%",textAlign:"center"}}>← חזרה</button>
+    </div>}
+
     {mode==='manual'&&<div style={{textAlign:"right",marginTop:preview?16:0}}>
       <h3 style={{fontSize:16,fontWeight:700,marginBottom:10,textAlign:"center"}}>הוסיפו פריטים</h3>
       {manualItems.map(function(it,i){return <div key={i} className="slide-in" style={{animationDelay:i*30+"ms",display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
